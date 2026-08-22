@@ -19,7 +19,7 @@ class ImageInferenceUser(HttpUser):
 
     @task
     def predict_image(self):
-        files = {"file": ("test_cat.jpg", IMAGE_BYTES, "image/jpeg")}
+        files = [{"file": ("test_cat.jpg", IMAGE_BYTES, "image/jpeg")}]
         with self.client.post("/predict", files=files, catch_response=True) as response:
             if response.status_code == 200:
                 data = response.json()
