@@ -6,13 +6,19 @@ from typing import List, Optional, Tuple
 
 import torch
 
+logging.basicConfig(
+    level=logging.INFO,
+    format="%(asctime)s [%(levelname)s] %(name)s: %(message)s",
+    handlers=[logging.StreamHandler(sys.stdout)],
+    force=True,
+)
 logger = logging.getLogger(__name__)
 
 
 @dataclass
 class InferenceJob:
     tensor: torch.Tensor  # Single preprocessed item (C, H, W) on CPU
-    future: asyncio.Future[Tuple[bool, float]]
+    future: asyncio.Future[float]
 
 
 def configure_torch_concurrency() -> int:
@@ -109,6 +115,7 @@ class DynamicBatcher:
 
             frozen = torch.jit.freeze(traced)
 
+            logger.info("Inference Worker is ready")
             # optimize_for_inference is designed specifically for CPU execution
             if self.device.type == "cpu":
                 return torch.jit.optimize_for_inference(frozen)
@@ -132,10 +139,10 @@ class DynamicBatcher:
                 pass
             logger.info("DynamicBatcher worker stopped.")
 
-    async def predict(self, tensor: torch.Tensor) -> Tuple[bool, float]:
+    async def predict(self, tensor: torch.Tensor) -> float:
         """FastAPI route entrypoint: Enqueues an individual tensor and awaits result."""
         loop = asyncio.get_running_loop()
-        future: asyncio.Future[Tuple[bool, float]] = loop.create_future()
+        future: asyncio.Future[float] = loop.create_future()
 
         job = InferenceJob(tensor=tensor, future=future)
         await self.queue.put(job)
@@ -204,5 +211,9 @@ class DynamicBatcher:
             probs = torch.softmax(logits, dim=-1)
 
             # Extract class 1 (cat probability) efficiently
-            cat_probs: List[float] = probs[:, 1].tolist()
-            return [(p >= 0.5, p) for p in cat_probs]
+            # 281: tabby, 282: tiger cat, 283: Persian cat, 284: Siamese cat, 285: Egyptian cat
+            CAT_INDICES = [281, 282, 283, 284, 285]
+
+            # Sum probabilities across all domestic cat breeds
+            cat_probs = probs[:, CAT_INDICES].sum(dim=-1).tolist()
+            return [(p) for p in cat_probs]
