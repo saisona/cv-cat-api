@@ -1,4 +1,5 @@
 import io
+import os
 
 import torch
 from PIL import Image
@@ -17,7 +18,12 @@ class CatClassifier:
         self.model.eval()
 
         # Restrict PyTorch CPU threads to avoid CPU thrashing under high concurrency
-        torch.set_num_threads(4)
+        if "TORCH_NUM_THREADS" in os.environ:
+            torch.set_num_threads(int(os.environ["TORCH_NUM_THREADS"]))
+        else:
+            # Fallback to default value
+            torch.set_num_threads(2)
+
         self.transforms = self.weights.transforms()
 
     @torch.inference_mode()
