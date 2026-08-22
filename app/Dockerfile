@@ -35,16 +35,17 @@ RUN useradd -m -u 1000 appuser && chown -R appuser:appuser /app
 # Copy the built virtual environment from builder stage
 COPY --from=builder --chown=appuser:appuser /app/.venv /app/.venv
 
+# Warm-up / Pre-download weights at build time (runs inside non-root home directory)
+RUN python -c "from torchvision.models import mobilenet_v3_small, MobileNet_V3_Small_Weights; mobilenet_v3_small(weights=MobileNet_V3_Small_Weights.DEFAULT)"
+
 # Switch to non-root
 USER appuser
 
 # Copy application source code
 COPY --chown=appuser:appuser main.py /app
-COPY --chown=appuser:appuser model.py /app
+COPY --chown=appuser:appuser batcher.py /app
 
-# Warm-up / Pre-download weights at build time (runs inside non-root home directory)
-RUN python -c "from torchvision.models import mobilenet_v3_small, MobileNet_V3_Small_Weights; mobilenet_v3_small(weights=MobileNet_V3_Small_Weights.DEFAULT)"
 
 EXPOSE 8080
 
-CMD ["uvicorn", "main:app", "--host", "0.0.0.0", "--port", "8080", "--workers", "2", "--loop", "uvloop"]
+CMD ["uvicorn", "main:app", "--host", "0.0.0.0", "--port", "8080", "--workers", "1", "--loop", "uvloop"]
