@@ -2,6 +2,7 @@ import asyncio
 import logging
 import os
 import sys
+import time
 from dataclasses import dataclass
 from typing import List, Optional
 
@@ -66,7 +67,10 @@ class DynamicBatcher:
         self.max_batch_size = max_batch_size
         self.max_wait_time_sec = max_wait_time_ms / 1000.0
         self.use_fp16 = self.device.type == "cuda"
-
+        logger.info(
+            f"Initializing DynamicBatcher: device={self.device,}, fp16={self.use_fp16,}, max_batch_size={self.max_batch_size,}, max_wait_ms=%.1fms",
+            max_wait_time_ms,
+        )
         # Initialize and compile the execution engine
         self.engine = self._prepare_engine(model)
 
@@ -93,6 +97,7 @@ class DynamicBatcher:
             AssertionError: If tracing fails to produce a valid `torch.jit.ScriptModule`.
         """
 
+        t0 = time.perf_counter()
         model.eval()
         model.to(self.device)
 
@@ -118,6 +123,12 @@ class DynamicBatcher:
 
             logger.info("Inference Worker is ready")
             # optimize_for_inference is designed specifically for CPU execution
+            compile_time_ms = (time.perf_counter() - t0) * 1000
+            logger.info(
+                "TorchScript engine compiled & optimized successfully in %.2f ms",
+                compile_time_ms,
+            )
+
             if self.device.type == "cpu":
                 return torch.jit.optimize_for_inference(frozen)
             return frozen
@@ -127,7 +138,7 @@ class DynamicBatcher:
         if not self._running:
             self._running = True
             self._worker_task = asyncio.create_task(self._worker_loop())
-            logger.info("DynamicBatcher worker loop started.")
+            logger.info("DynamicBatcher background consumer worker started.")
 
     async def stop(self) -> None:
         """Gracefully stop the background worker."""
@@ -162,7 +173,6 @@ class DynamicBatcher:
            or propagates exceptions to all futures if the batch forward pass fails.
         5. Acknowledges processed items via `queue.task_done()`.
         """
-
         while self._running:
             # 1. Block until at least one request arrives
             first_job = await self.queue.get()
@@ -182,6 +192,13 @@ class DynamicBatcher:
                 except asyncio.TimeoutError:
                     break
 
+            logger.info(
+                "Batch formed: size=%d/%d | pending_in_queue=%d",
+                len(batch),
+                self.max_batch_size,
+                self.queue.qsize(),
+            )
+
             # 3. Offload compute-heavy inference to a worker thread
             try:
                 results = await asyncio.to_thread(self._run_inference_sync, batch)
@@ -199,7 +216,10 @@ class DynamicBatcher:
 
     def _run_inference_sync(self, batch: List[InferenceJob]) -> List[float]:
         """Synchronous forward pass running in the thread pool."""
+        t0 = time.perf_counter()
         tensors = [job.tensor for job in batch]
+        logger.info(f"inference job launched with {len(batch)} items !!!!!")
+
         sys.stderr.write(f"\n>>> INFERENCE EXECUTING ON {len(batch)} ITEMS <<<\n")
         sys.stderr.flush()
 
@@ -217,4 +237,13 @@ class DynamicBatcher:
 
             # Sum probabilities across all domestic cat breeds
             cat_probs = probs[:, CAT_INDICES].sum(dim=-1).tolist()
+            infer_time_ms = (time.perf_counter() - t0) * 1000
+            ms_per_item = infer_time_ms / len(batch)
+
+            logger.info(
+                "Inference pass finished: batch_size=%d | total_compute=%.2f ms (%.2f ms/item)",
+                len(batch),
+                infer_time_ms,
+                ms_per_item,
+            )
             return [(p) for p in cat_probs]
