@@ -1,8 +1,9 @@
 import asyncio
 import logging
 import os
+import sys
 from dataclasses import dataclass
-from typing import List, Optional, Tuple
+from typing import List, Optional
 
 import torch
 
@@ -196,11 +197,11 @@ class DynamicBatcher:
                 for _ in range(len(batch)):
                     self.queue.task_done()
 
-    def _run_inference_sync(
-        self, batch: List[InferenceJob]
-    ) -> List[Tuple[bool, float]]:
+    def _run_inference_sync(self, batch: List[InferenceJob]) -> List[float]:
         """Synchronous forward pass running in the thread pool."""
         tensors = [job.tensor for job in batch]
+        sys.stderr.write(f"\n>>> INFERENCE EXECUTING ON {len(batch)} ITEMS <<<\n")
+        sys.stderr.flush()
 
         # Stack CPU tensors into (N, 3, H, W) and transfer to target device & dtype
         target_dtype = torch.float16 if self.use_fp16 else torch.float32
