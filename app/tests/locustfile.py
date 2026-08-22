@@ -5,7 +5,10 @@ from pathlib import Path
 from locust import HttpUser, between, task
 from PIL import Image
 
-REAL_IMAGE_PATH = Path("tests/assets/cat_1.jpg")  # Update with your actual image path
+REAL_IMAGE_PATHS = [
+    Path("tests/assets/cat_1.jpg"),
+    Path("tests/assets/cat_2.webp"),
+]  # Update with your actual image path
 
 
 def load_real_image_bytes(path: Path) -> bytes:
@@ -34,12 +37,11 @@ class CVInferenceUser(HttpUser):
 
     def on_start(self):
         """Cache both image payloads in memory per virtual user."""
-        self.real_image_bytes = load_real_image_bytes(REAL_IMAGE_PATH)
         self.synth_image_bytes = generate_synthetic_image_bytes()
 
         # Define choices and distribution weight (e.g. 50/50 or 70/30)
         self.payload_options = [
-            ("real_cat.jpg", self.real_image_bytes),
+            [load_real_image_bytes(p) for p in REAL_IMAGE_PATHS],
             ("synth_cat.jpg", self.synth_image_bytes),
         ]
         # 50% chance real, 50% chance synthetic
