@@ -6,6 +6,9 @@ authors = [
     {name = "Alexandre Saison",email = "alexandre.saison.pro@gmail.com"}
 ]
 
+[tool.poetry]
+package-mode = false
+
 [[tool.poetry.source]]
 name = "pytorch-cpu"
 url = "https://download.pytorch.org/whl/cpu"
