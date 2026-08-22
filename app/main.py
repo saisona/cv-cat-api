@@ -1,55 +1,61 @@
+import io
 from contextlib import asynccontextmanager
 
-from fastapi import FastAPI, File, HTTPException, UploadFile, status
+import torchvision.models as models
+from fastapi import FastAPI, File, HTTPException, UploadFile
+from PIL import Image
+from torchvision import transforms
 
-from model import CatClassifier
+from batcher import DynamicBatcher
 
-model: CatClassifier | None = None
+batcher: DynamicBatcher | None = None
+
+# Lightweight image preprocessing
+preprocess_transform = transforms.Compose(
+    [
+        transforms.Resize((224, 224)),
+        transforms.ToTensor(),
+        transforms.Normalize(
+            mean=[0.485, 0.456, 0.406],
+            std=[0.229, 0.224, 0.225],
+        ),
+    ]
+)
 
 
 @asynccontextmanager
 async def lifespan(_: FastAPI):
-    global model
-    # Load model during app startup (avoids cold start penalty on first request)
-    model = CatClassifier()
+    global batcher
+    # Initialize base model
+    model = models.mobilenet_v3_small(weights=None, num_classes=2)
+    # Instantiate dynamic batcher (16 batch size, 10ms window)
+    batcher = DynamicBatcher(model=model, max_batch_size=16, max_wait_time_ms=10.0)
+    batcher.start()
     yield
-    # Clean up resources if necessary
-    model = None
+    await batcher.stop()
 
 
-app = FastAPI(
-    title="Computer Vision Classification API", version="1.0.0", lifespan=lifespan
-)
-
-
-@app.get("/health", status_code=status.HTTP_200_OK)
-def health_check():
-    """
-    Healthz check performed by the Kubernetes cluster for both readiness/liveness of the application
-    """
-    return {"status": "healthy"}
+app = FastAPI(lifespan=lifespan)
 
 
 @app.post("/predict")
-async def predict_image(file: UploadFile = File(...)):
-    if model == None:
-        raise Exception("model is not loaded")
-    elif file.content_type not in ["image/jpeg", "image/png", "image/webp"]:
-        raise HTTPException(
-            status_code=status.HTTP_415_UNSUPPORTED_MEDIA_TYPE,
-            detail=f"Unsupported file type: {file.content_type}. Use JPEG, PNG, or WebP.",
-        )
+async def predict(file: UploadFile = File(...)):
 
-    try:
-        content = await file.read()
-        results = model.predict(content)
-        return {"filename": file.filename, **results}
-    except ValueError as val_err:
-        raise HTTPException(
-            status_code=status.HTTP_400_BAD_REQUEST, detail=str(val_err)
-        )
-    except Exception:
-        raise HTTPException(
-            status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
-            detail="Inference failed.",
-        )
+    if batcher is None:
+        raise HTTPException(status_code=500, detail="Batcher is not available")
+    elif not file.content_type or not file.content_type.startswith("image/"):
+        raise HTTPException(status_code=400, detail="Invalid file format")
+
+    # 1. Read & decode image bytes
+    contents = await file.read()
+    image = Image.open(io.BytesIO(contents)).convert("RGB")
+
+    # 2. Preprocess to tensor: shape (3, 224, 224)
+    tensor = preprocess_transform(image)
+
+    # 3. Hand off to batcher
+    prob = await batcher.predict(tensor)
+
+    return {
+        "probability": round(prob, 4),
+    }
