@@ -55,6 +55,13 @@ async def lifespan(_: FastAPI):
 app = FastAPI(lifespan=lifespan)
 
 
+@app.get("/healthz")
+def health():
+    if batcher is None:
+        raise HTTPException(status_code=503)
+    return "ok"
+
+
 @app.post("/predict")
 async def predict(file: UploadFile = File(...)):
 
