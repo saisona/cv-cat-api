@@ -1,0 +1,23 @@
+resources:
+  - ../base
+
+patches:
+  - path: deployment.yaml
+
+namePrefix: cv-app
+
+labels:
+  - pairs:
+      billing/team: unknown
+      billing/product: cv-app
+      billing/withGPU: "true"
+  - includeSelectors: true
+    pairs:
+      app.kubernetes.io/managed-by: kustomize
+      app.kubernetes.io/name: cv-app
+      app.kubernetes.io/part-of: research
+
+images:
+  - name: app
+    newName: asaison/cv-cat-api
+    newTag: v0.1.0
