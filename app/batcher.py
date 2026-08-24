@@ -220,9 +220,6 @@ class DynamicBatcher:
         tensors = [job.tensor for job in batch]
         logger.info(f"inference job launched with {len(batch)} items !!!!!")
 
-        sys.stderr.write(f"\n>>> INFERENCE EXECUTING ON {len(batch)} ITEMS <<<\n")
-        sys.stderr.flush()
-
         # Stack CPU tensors into (N, 3, H, W) and transfer to target device & dtype
         target_dtype = torch.float16 if self.use_fp16 else torch.float32
         batch_tensor = torch.stack(tensors).to(self.device, dtype=target_dtype)
