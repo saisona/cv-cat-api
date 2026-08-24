@@ -58,7 +58,7 @@ _initialize_payloads()
 # -------------------------------------------------------------------------
 class MLBatchingUser(FastHttpUser):
     # Lock each user to ~20 requests/sec max to avoid local thread starving
-    wait_time = constant_throughput(20)
+    wait_time = constant_throughput(30)
 
     @task
     def test_predict_endpoint(self):
